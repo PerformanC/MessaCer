@@ -25,13 +25,13 @@ static void *on_text(void *data) {
   jsmnf_pair pairs[256];
   jsmnf_pair *action, *msg, *author;
 
-  char message[2000], actionStr[16];
+  char message[4000], actionStr[16];
 
-  while (recv(sock, message, 2000, 0) != 0) {
-    printf("[MessaCer]: Message received: %s\n", message);
+  size_t messageSize;
 
+  while ((messageSize = recv(sock, message, 4000, 0)) != 0) {
     jsmn_init(&parser);
-    r = jsmn_parse(&parser, message, strlen(message), tokens, 256);
+    r = jsmn_parse(&parser, message, messageSize, tokens, 256);
     if (r < 0) {
       puts("[MessaCer]: Failed to parse JSON, ignoring.");
       memset(message, 0, sizeof(message));
@@ -50,11 +50,11 @@ static void *on_text(void *data) {
 
     sprintf(actionStr, "%.*s", (int)action->v.len, message + action->v.pos);
 
-    if (strcmp(actionStr, "message") == 0) {
+    if (strcmp(actionStr, "msg") == 0) {
       msg = jsmnf_find(pairs, message, "msg", 3);
       author = jsmnf_find(pairs, message, "author", 6);
 
-      printf("%.*s: %.*s\n", (int)author->v.len, message + author->v.pos, (int)msg->v.len, message + msg->v.pos);
+      printf("\r%.*s: %.*s\n", (int)author->v.len, message + author->v.pos, (int)msg->v.len, message + msg->v.pos);
     }
     if (strcmp(actionStr, "userJoin") == 0) {
       printf("\n[MessaCer]: Someone connected to the server.\n");
@@ -63,7 +63,7 @@ static void *on_text(void *data) {
       printf("\n[MessaCer]: Someone disconnected from the server.\n");
     }
 
-    memset(message, 0, sizeof(message));
+    memset(message, 0, messageSize);
   }
 
   puts("[MessaCer]: Server disconnected, exiting.");
@@ -76,11 +76,15 @@ static void *on_text(void *data) {
 int main(void) {
   int fd;
 	struct sockaddr_in server; struct cthreads_thread thread;
-  char url[512], username[32], message[4000 + 1], payload[4000 + 41 + 32 + 1];
+  char url[512], password[16], username[32], message[3900], payload[4000];
 
   printf("URL of host server: ");
   fgets(url, sizeof(url), stdin);
   strtok(url, "\n");
+
+  printf("Password: ");
+  fgets(password, sizeof(password), stdin);
+  strtok(password, "\n");
 
   printf("Username: ");
   fgets(username, sizeof(username), stdin);
@@ -103,13 +107,24 @@ int main(void) {
 
   printf("[MessaCer]: Successfully connected to host, caution, it has access to everything you send and may be stored.\n");
 
+  sprintf(payload, "{\"op\":\"auth\",\"password\":\"%s\",\"username\":\"%s\"}", password, username);
+
+  if (send(fd, payload, strlen(payload), 0) < 0) {
+    perror("[MessaCer]: Failed to send auth to server.");
+    return 1;
+  }
+
+  memset(payload, 0, sizeof(payload));
+
   cthreads_thread_create(&thread, NULL, on_text, (void *)&fd);
 
   while (1) {
     fgets(message, sizeof(message), stdin);
     strtok(message, "\n");
 
-    sprintf(payload, "{\"action\":\"message\",\"msg\":\"%s\",\"author\":\"%s\"}", message, username);
+    printf("\033[1A%s: %s\n", username, message);
+
+    sprintf(payload, "{\"op\":\"msg\",\"msg\":\"%s\"}", message);
 
     if (send(fd, payload, strlen(payload), 0) < 0) {
       perror("[MessaCer]: Failed to send data to server.");

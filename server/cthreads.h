@@ -117,6 +117,7 @@ int cthreads_thread_create(struct cthreads_thread *thread, struct cthreads_threa
         args->func = func;
         args->data = data;
 
+
         if (attr) {
             if (attr->detachstate) pthread_attr_setdetachstate(&pAttr, attr->detachstate);
             if (attr->guardsize) pthread_attr_setguardsize(&pAttr, attr->guardsize);
@@ -127,7 +128,7 @@ int cthreads_thread_create(struct cthreads_thread *thread, struct cthreads_threa
             if (attr->stacksize) pthread_attr_setstacksize(&pAttr, attr->stacksize);
         }
 
-        res = pthread_create(&pthread, attr ? &pAttr : NULL, __cthreads_pthread_function_wrapper, (void *)args);
+        res = pthread_create(&pthread, NULL, __cthreads_pthread_function_wrapper, args);
 
         thread->pThread = pthread;
 
@@ -169,7 +170,11 @@ int cthreads_mutex_init(struct cthreads_mutex *mutex, struct cthreads_mutex_attr
             if (attr->pshared) pthread_mutexattr_setpshared(&pAttr, attr->pshared);
             if (attr->type) pthread_mutexattr_settype(&pAttr, attr->type);
             if (attr->protocol) pthread_mutexattr_setprotocol(&pAttr, attr->protocol);
-            if (attr->robust) pthread_mutexattr_setrobust(&pAttr, attr->robust);
+            #ifdef __linux__
+                if (attr->robust) pthread_mutexattr_setrobust(&pAttr, attr->robust);
+            #elif __FreeBSD__
+                if (attr->robust) pthread_mutexattr_setrobust(&pAttr, attr->robust);
+            #endif
             if (attr->prioceiling) pthread_mutexattr_setprioceiling(&pAttr, attr->prioceiling);
         }
         return pthread_mutex_init(&mutex->pMutex, attr ? &pAttr : NULL);

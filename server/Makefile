@@ -1,5 +1,5 @@
-CC := clang
-CFLAGS := -Wall -Wextra -Wpedantic -std=c89
+CC ?= gcc
+CFLAGS := -Wall -Wextra -Wpedantic -std=c89 -pthread
 FILES := main.c
 
 all:
