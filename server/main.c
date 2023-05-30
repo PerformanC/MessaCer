@@ -1,13 +1,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdarg.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <signal.h>
-#include "jsmn.h"
-#include "jsmn-find.h"
-#include "cthreads.h"
+#include "../libs/jsmn.h"
+#include "../libs/jsmn-find.h"
+#include "../libs/json-build.h"
+#include "../libs/cthreads.h"
 
 int fd;
 char *serverPassword = "1234";
@@ -67,7 +69,7 @@ void remove_client(int client_socket) {
   }
 }
 
-void send_to_all_except(char *message, int len, int client_socket) {
+void sendToAllExcept(char *message, int len, int client_socket) {
   int i = 0;
   while (i < MAX_CLIENTS && client_sockets[i].socket != 0) {
     if (client_sockets[i].socket == client_socket) {
@@ -80,115 +82,119 @@ void send_to_all_except(char *message, int len, int client_socket) {
   }
 }
 
-int snprintf(char *str, size_t size, const char *format, ...);
-
 /* UTILS - END */
 
 void *listen_msgs(void *data) {
-  int socket_desc = *(int *)data;
+  int socketDesc = *(int *)data;
 
   char message[2000];
-  int msg_size;
+  size_t msgSize;
 
-  int r, payload_size, clientIndex;
+  int r, payloadSize, clientIndex;
   jsmn_parser parser;
   jsmntok_t tokens[256];
   jsmnf_loader loader;
   jsmnf_pair pairs[256];
   jsmnf_pair *op, *username, *password, *messageS;
-  char opStr[16], usernameStr[16], passwordStr[16], messageStr[1980], payload[4000];
+  char opStr[16], usernameStr[16], passwordStr[16], payload[4000];
 
-  while ((msg_size = recv(socket_desc, message, 4000, 0)) > 0) {
-    printf("[MessaCerServer]: Received message: %s\n", message);
+  while ((msgSize = recv(socketDesc, message, 4000, 0)) > 0) {
+    printf("[receiver]: Received message: %s\n", message);
 
     jsmn_init(&parser);
-    r = jsmn_parse(&parser, message, msg_size, tokens, 256);
+    r = jsmn_parse(&parser, message, msgSize, tokens, 256);
     if (r < 0) {
-      puts("[MessaCerServer]: Failed to parse JSON, ignoring.");
-      memset(message, 0, sizeof(message));
+      puts("[parser]: Failed to parse JSON, ignoring.");
+
+      memset(message, 0, msgSize);
+
       continue;
     }
 
     jsmnf_init(&loader);
     r = jsmnf_load(&loader, message, tokens, parser.toknext, pairs, 256);
     if (r < 0) {
-      puts("[MessaCerServer]: Failed to load JSMNF, ignoring.");
-      memset(message, 0, sizeof(message));
+      puts("[parser]: Failed to load JSMNF, ignoring.");
+
+      memset(message, 0, msgSize);
+
       continue;
     }
 
     op = jsmnf_find(pairs, message, "op", sizeof("op") - 1);
 
     if (op == NULL) {
-      puts("[MessaCerServer]: No operation specified, ignoring.");
-      memset(message, 0, sizeof(message));
+      puts("[parser]: No operation specified, ignoring.");
+
+      memset(message, 0, msgSize);
+
       continue;
     }
 
-    snprintf(opStr, sizeof(opStr), "%.*s", (int)op->v.len, message + op->v.pos);
+    sprintf(opStr, "%.*s", (int)op->v.len, message + op->v.pos);
   
     if (strcmp(opStr, "msg") == 0) {
       messageS = jsmnf_find(pairs, message, "msg", sizeof("msg") - 1);
 
-      snprintf(messageStr, sizeof(messageStr), "%.*s", (int)messageS->v.len, message + messageS->v.pos);
+      clientIndex = get_client(socketDesc);
 
-      clientIndex = get_client(socket_desc);
+      printf("[chat]: %s: %.*s\n", client_sockets[clientIndex].name, (int)messageS->v.len, message + messageS->v.pos);
 
-      printf("[MessaCerServer]: %s: %s\n", client_sockets[clientIndex].name, messageStr);
+      payloadSize = sprintf(payload, "{\"op\":\"msg\",\"msg\":\"%.*s\",\"author\":\"%s\"}", (int)messageS->v.len, message + messageS->v.pos, client_sockets[clientIndex].name);
 
-      payload_size = snprintf(payload, sizeof(payload), "{\"action\":\"msg\",\"msg\":\"%s\",\"author\":\"%s\"}", messageStr, client_sockets[clientIndex].name);
+      sendToAllExcept(payload, payloadSize, socketDesc);
 
-      send_to_all_except(payload, payload_size, socket_desc);
-
-      memset(message, 0, sizeof(message));
+      memset(message, 0, msgSize);
     }
     if (strcmp(opStr, "auth") == 0) {
       username = jsmnf_find(pairs, message, "username", sizeof("username") - 1);
       password = jsmnf_find(pairs, message, "password", sizeof("password") - 1);
 
       if (username == NULL || password == NULL) {
-        puts("[MessaCerServer]: No username or password specified, ignoring.");
-        memset(message, 0, sizeof(message));
+        puts("[auth]: No username or password specified, ignoring.");
+
+        memset(message, 0, msgSize);
+
         continue;
       }
 
-      snprintf(usernameStr, sizeof(usernameStr), "%.*s", (int)username->v.len, message + username->v.pos);
-      snprintf(passwordStr, sizeof(passwordStr), "%.*s", (int)password->v.len, message + password->v.pos);
+      sprintf(usernameStr, "%.*s", (int)username->v.len, message + username->v.pos);
+      sprintf(passwordStr, "%.*s", (int)password->v.len, message + password->v.pos);
 
       if (strcmp(passwordStr, serverPassword) == 0) {
-        add_client(socket_desc, usernameStr);
+        add_client(socketDesc, usernameStr);
 
-        send_to_all_except("{\"action\":\"userJoin\"}", 21, socket_desc);
+        sendToAllExcept("{\"op\":\"userJoin\"}", 21, socketDesc);
 
-        printf("[MessaCerServer]: \"%s\" is now authorized.\n", usernameStr);
+        printf("[auth]: \"%s\" is now authorized.\n", usernameStr);
+
+        memset(message, 0, msgSize);
       } else {
-        printf("[MessaCerServer]: \"%s\" not authorized.\n", usernameStr);
+        printf("[auth]: \"%s\" not authorized.\n", usernameStr);
 
-        payload_size = snprintf(payload, sizeof(payload), "{\"action\":\"auth\",\"status\":\"fail\"}");
+        payloadSize = sprintf(payload, "{\"op\":\"auth\",\"status\":\"fail\"}");
 
-        write(socket_desc, payload, payload_size);
+        write(socketDesc, payload, payloadSize);
 
-        memset(message, 0, sizeof(message));
+        memset(message, 0, msgSize);
 
-        close(socket_desc);
+        close(socketDesc);
         
         continue;
       }
-
-      memset(message, 0, sizeof(message));
     }
   }
 
-  if (msg_size == 0) {
-    puts("[MessaCerServer]: Client disconnected");
+  if (msgSize == 0) {
+    puts("[receiver]: Client disconnected");
     fflush(stdout);
-  } else if (msg_size == -1) {
-    perror("[MessaCerServer]: recv failed");
+  } else {
+    perror("[receiver]: recv failed");
   }
 
-  send_to_all_except("{\"action\":\"userLeave\"}", 23, socket_desc);
+  sendToAllExcept("{\"op\":\"userLeave\"}", 23, socketDesc);
 
-  remove_client(socket_desc);
+  remove_client(socketDesc);
 
   return NULL;
 }
@@ -198,21 +204,28 @@ void intHandler(int signal) {
   (void) signal;
 
   while (client_sockets[i].socket != 0) {
+    shutdown(client_sockets[i].socket, SHUT_RDWR);
     close(client_sockets[i].socket);
     i++;
   }
 
-  puts("[MessaCerServer]: Closing server since received signint...");
+  free(client_sockets);
+
+  puts("[socket]: Closing server since received signint...");
+
+  if (shutdown(fd, SHUT_RDWR) < 0) {
+    perror("[socket]: shutdown failed.");
+  }
 
   if (close(fd) < 0) {
-    perror("[MessaCerServer]: close failed.");
+    perror("[socket]: close failed.");
   }
 
   exit(0);
 }
 
 int main(void) {
-  int address, socket_desc, i = 0;
+  int address, socketDesc, i = 0;
   struct sockaddr_in server, client;
   struct cthreads_thread thread;
 
@@ -220,25 +233,25 @@ int main(void) {
 
   fd = socket(AF_INET, SOCK_STREAM, 0);
 	if (fd == -1) {
-    perror("[MessaCerServer]: create socket failed");
+    perror("[system]: create socket failed");
     return 1;
 	}
 
-  puts("[MessaCerServer]: socket created");
+  puts("[socket]: socket created");
 
   server.sin_family = AF_INET;
   server.sin_addr.s_addr = INADDR_ANY;
   server.sin_port = htons(8888);
 
   if (bind(fd, (struct sockaddr *)&server, sizeof(server)) < 0) {
-    perror("[MessaCerServer]: bind failed");
+    perror("[socket]: bind failed");
     return 1;
   }
 
-  puts("[MessaCerServer]: bind done");
+  puts("[socket]: bind done");
 
   if (listen(fd, 3) == -1) {
-    perror("[MessaCerServer]: listen failed");
+    perror("[socket]: listen failed");
     return 1;
   }
 
@@ -251,29 +264,46 @@ int main(void) {
     i++;
   }
 
-  puts("[MessaCerServer]: Waiting for incoming connections...");
+  puts("[socket]: Waiting for incoming connections...");
 
   address = sizeof(struct sockaddr_in);
 
-  while ((socket_desc = accept(fd, (struct sockaddr *)&client, (socklen_t *)&address))) {
-    puts("[MessaCerServer]: Connection accepted");
+  while ((socketDesc = accept(fd, (struct sockaddr *)&client, (socklen_t *)&address))) {
+    puts("[socket]: Connection accepted");
 
-    cthreads_thread_create(&thread, NULL, listen_msgs, (void *)&socket_desc);
+    cthreads_thread_create(&thread, NULL, listen_msgs, (void *)&socketDesc);
 
-    puts("[MessaCerServer]: Handler assigned");
+    puts("[system]: Handler assigned to new user");
 
-    if (socket_desc == -1) {
-      perror("[MessaCerServer]: accept failed");
+    if (socketDesc == -1) {
+      perror("[socket]: accept failed");
       return 1;
     }
   }
 
-  printf("[MessaCerServer]: Disconnecting server, see you later.\n");
+  puts("[system]: Disconnecting server, see you later.");
 
-  if (close(fd) < 0) {
-    perror("[MessaCerServer]: close failed");
+  while (client_sockets[i].socket != 0) {
+    shutdown(client_sockets[i].socket, SHUT_RDWR);
+    close(client_sockets[i].socket);
+    i++;
+  }
+
+  free(client_sockets);
+
+  if (shutdown(fd, SHUT_RDWR) < 0) {
+    perror("[socket]: shutdown failed.");
+
     return 1;
   }
+
+  if (close(fd) < 0) {
+    perror("[socket]: close failed.");
+
+    return 1;
+  }
+
+  puts("[system]: Server disconnected.");
 
   return 0;
 }

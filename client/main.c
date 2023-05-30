@@ -6,9 +6,10 @@
 #include <sys/types.h>
 #include <arpa/inet.h>
 #include <unistd.h>
-#include "cthreads.h"
-#include "jsmn.h"
-#include "jsmn-find.h"
+#include "../libs/jsmn.h"
+#include "../libs/jsmn-find.h"
+#include "../libs/json-build.h"
+#include "../libs/cthreads.h"
 
 struct informations {
   int socket;
@@ -19,51 +20,69 @@ struct informations {
 
 static void *on_text(void *data) {
   int sock = *(int *)data, r;
+  size_t fieldSize;
   jsmn_parser parser;
   jsmntok_t tokens[256];
   jsmnf_loader loader;
   jsmnf_pair pairs[256];
-  jsmnf_pair *action, *msg, *author;
+  jsmnf_pair *op, *msg, *author;
 
-  char message[4000], actionStr[16];
+  char payload[4000], newMessage[4000], message[3900], opStr[16];
 
-  size_t messageSize;
+  size_t payloadSize;
 
-  while ((messageSize = recv(sock, message, 4000, 0)) != 0) {
+  while ((payloadSize = recv(sock, payload, 4000, 0)) != 0) {
     jsmn_init(&parser);
-    r = jsmn_parse(&parser, message, messageSize, tokens, 256);
+    r = jsmn_parse(&parser, payload, payloadSize, tokens, 256);
     if (r < 0) {
       puts("[MessaCer]: Failed to parse JSON, ignoring.");
-      memset(message, 0, sizeof(message));
+
+      memset(payload, 0, payloadSize);
+
       continue;
     }
 
     jsmnf_init(&loader);
-    r = jsmnf_load(&loader, message, tokens, parser.toknext, pairs, 256);
+    r = jsmnf_load(&loader, payload, tokens, parser.toknext, pairs, 256);
     if (r < 0) {
       puts("[MessaCer]: Failed to load JSMNF, ignoring.");
-      memset(message, 0, sizeof(message));
+
+      memset(payload, 0, payloadSize);
+
       continue;
     }
 
-    action = jsmnf_find(pairs, message, "action", 6);
+    op = jsmnf_find(pairs, payload, "op", 2);
+    printf("op: %.*s\n", (int)op->v.len, payload + op->v.pos);
 
-    sprintf(actionStr, "%.*s", (int)action->v.len, message + action->v.pos);
+    sprintf(opStr, "%.*s", (int)op->v.len, payload + op->v.pos);
 
-    if (strcmp(actionStr, "msg") == 0) {
-      msg = jsmnf_find(pairs, message, "msg", 3);
-      author = jsmnf_find(pairs, message, "author", 6);
+    if (strcmp(opStr, "msg") == 0) {
+      msg = jsmnf_find(pairs, payload, "msg", 3);
+      author = jsmnf_find(pairs, payload, "author", 6);
 
-      printf("\r%.*s: %.*s\n", (int)author->v.len, message + author->v.pos, (int)msg->v.len, message + msg->v.pos);
+      fieldSize = sprintf(message, "%.*s", (int)msg->v.len, payload + msg->v.pos);
+
+      r = jsmnf_unescape(newMessage, sizeof(newMessage), message, fieldSize);
+      if (r < 0) {
+        puts("[MessaCer]: Failed to unescape payload, ignoring.");
+
+        memset(payload, 0, payloadSize);
+
+        continue;
+      }
+
+      // printf("\r%.*s: %.*s\n", (int)author->v.len, payload + author->v.pos, (int)msg->v.len, payload + msg->v.pos);
+      printf("\r%.*s: %s\n", (int)author->v.len, payload + author->v.pos, newMessage);
     }
-    if (strcmp(actionStr, "userJoin") == 0) {
+    if (strcmp(opStr, "userJoin") == 0) {
       printf("\n[MessaCer]: Someone connected to the server.\n");
     }
-    if (strcmp(actionStr, "userLeave") == 0) {
+    if (strcmp(opStr, "userLeave") == 0) {
       printf("\n[MessaCer]: Someone disconnected from the server.\n");
     }
 
-    memset(message, 0, messageSize);
+    memset(payload, 0, payloadSize);
   }
 
   puts("[MessaCer]: Server disconnected, exiting.");
@@ -75,6 +94,7 @@ static void *on_text(void *data) {
 
 int main(void) {
   int fd;
+  jsonb b;
 	struct sockaddr_in server; struct cthreads_thread thread;
   char url[512], password[16], username[32], message[3900], payload[4000];
 
@@ -105,7 +125,7 @@ int main(void) {
     return 1;
   }
 
-  printf("[MessaCer]: Successfully connected to host, caution, it has access to everything you send and may be stored.\n");
+  printf("[MessaCer]: Successfully connected to host, caution, it has access to everything you send and may be stored.\n\n");
 
   sprintf(payload, "{\"op\":\"auth\",\"password\":\"%s\",\"username\":\"%s\"}", password, username);
 
@@ -124,7 +144,15 @@ int main(void) {
 
     printf("\033[1A%s: %s\n", username, message);
 
-    sprintf(payload, "{\"op\":\"msg\",\"msg\":\"%s\"}", message);
+    jsonb_init(&b);
+    jsonb_object(&b, payload, sizeof(payload));
+    {
+      jsonb_key(&b, payload, sizeof(payload), "op", sizeof("op") - 1);
+      jsonb_string(&b, payload, sizeof(payload), "msg", sizeof("msg") - 1);
+      jsonb_key(&b, payload, sizeof(payload), "msg", sizeof("msg") - 1);
+      jsonb_string(&b, payload, sizeof(payload), message, strlen(message));
+      jsonb_object_pop(&b, payload, sizeof(payload));
+    }
 
     if (send(fd, payload, strlen(payload), 0) < 0) {
       perror("[MessaCer]: Failed to send data to server.");
