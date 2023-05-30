@@ -37,7 +37,7 @@ static void *on_text(void *data) {
     if (r < 0) {
       puts("[MessaCer]: Failed to parse JSON, ignoring.");
 
-      memset(payload, 0, payloadSize);
+      memset(payload, 0, sizeof(payload));
 
       continue;
     }
@@ -47,13 +47,12 @@ static void *on_text(void *data) {
     if (r < 0) {
       puts("[MessaCer]: Failed to load JSMNF, ignoring.");
 
-      memset(payload, 0, payloadSize);
+      memset(payload, 0, sizeof(payload));
 
       continue;
     }
 
     op = jsmnf_find(pairs, payload, "op", 2);
-    printf("op: %.*s\n", (int)op->v.len, payload + op->v.pos);
 
     sprintf(opStr, "%.*s", (int)op->v.len, payload + op->v.pos);
 
@@ -67,13 +66,14 @@ static void *on_text(void *data) {
       if (r < 0) {
         puts("[MessaCer]: Failed to unescape payload, ignoring.");
 
-        memset(payload, 0, payloadSize);
+        memset(payload, 0, sizeof(payload));
 
         continue;
       }
 
-      // printf("\r%.*s: %.*s\n", (int)author->v.len, payload + author->v.pos, (int)msg->v.len, payload + msg->v.pos);
       printf("\r%.*s: %s\n", (int)author->v.len, payload + author->v.pos, newMessage);
+
+      memset(newMessage, 0, r);
     }
     if (strcmp(opStr, "userJoin") == 0) {
       printf("\n[MessaCer]: Someone connected to the server.\n");
@@ -125,7 +125,7 @@ int main(void) {
     return 1;
   }
 
-  printf("[MessaCer]: Successfully connected to host, caution, it has access to everything you send and may be stored.\n\n");
+  puts("[MessaCer]: Successfully connected to host, caution, it has access to everything you send and may be stored.\n");
 
   sprintf(payload, "{\"op\":\"auth\",\"password\":\"%s\",\"username\":\"%s\"}", password, username);
 
