@@ -14,12 +14,7 @@
 int fd;
 char *serverPassword = "1234";
 
-struct thread_arg {
-  int *client_sockets;
-  int client_socket;
-};
-
-struct client_info {
+struct clientInfo {
   int socket;
   char *name;
   int authorized;
@@ -27,27 +22,27 @@ struct client_info {
 
 #define MAX_CLIENTS 4 + (1)
 
-struct client_info *client_sockets;
+struct clientInfo *clientSockets;
 
 /* UTILS - START */
 
-void add_client(int client_socket, char *name) {
+void addClient(int clientSocket, char *name) {
   int i = 0;
   while (i < MAX_CLIENTS) {
-    if (client_sockets[i].socket == 0) {
-      client_sockets[i].socket = client_socket;
-      client_sockets[i].name = name;
-      client_sockets[i].authorized = 1;
+    if (clientSockets[i].socket == 0) {
+      clientSockets[i].socket = clientSocket;
+      clientSockets[i].name = name;
+      clientSockets[i].authorized = 1;
       break;
     }
     i++;
   }
 }
 
-int get_client(int client_socket) {
+int getClient(int clientSocket) {
   int i = 0;
   while (i < MAX_CLIENTS) {
-    if (client_sockets[i].socket == client_socket) {
+    if (clientSockets[i].socket == clientSocket) {
       return i;
     }
     i++;
@@ -56,35 +51,35 @@ int get_client(int client_socket) {
   return -1;
 }
 
-void remove_client(int client_socket) {
+void removeClient(int clientSocket) {
   int i = 0;
   while (i < MAX_CLIENTS) {
-    if (client_sockets[i].socket == client_socket) {
-      client_sockets[i].socket = 0;
-      client_sockets[i].name = NULL;
-      client_sockets[i].authorized = 0;
+    if (clientSockets[i].socket == clientSocket) {
+      clientSockets[i].socket = 0;
+      clientSockets[i].name = NULL;
+      clientSockets[i].authorized = 0;
       break;
     }
     i++;
   }
 }
 
-void sendToAllExcept(char *message, int len, int client_socket) {
+void sendToAllExcept(char *message, int len, int clientSocket) {
   int i = 0;
-  while (i < MAX_CLIENTS && client_sockets[i].socket != 0) {
-    if (client_sockets[i].socket == client_socket) {
+  while (i < MAX_CLIENTS && clientSockets[i].socket != 0) {
+    if (clientSockets[i].socket == clientSocket) {
       i++;
       continue;
     }
 
-    write(client_sockets[i].socket, message, len);
+    write(clientSockets[i].socket, message, len);
     i++;
   }
 }
 
 /* UTILS - END */
 
-void *listen_msgs(void *data) {
+void *listenPayloads(void *data) {
   int socketDesc = *(int *)data;
 
   char message[2000];
@@ -99,8 +94,6 @@ void *listen_msgs(void *data) {
   char opStr[16], usernameStr[16], passwordStr[16], payload[4000];
 
   while ((msgSize = recv(socketDesc, message, 4000, 0)) > 0) {
-    printf("[receiver]: Received message: %s\n", message);
-
     jsmn_init(&parser);
     r = jsmn_parse(&parser, message, msgSize, tokens, 256);
     if (r < 0) {
@@ -125,22 +118,23 @@ void *listen_msgs(void *data) {
 
     if (op == NULL) {
       puts("[parser]: No operation specified, ignoring.");
-
       memset(message, 0, msgSize);
 
       continue;
     }
 
-    sprintf(opStr, "%.*s", (int)op->v.len, message + op->v.pos);
+    printf("[receiver]: Received message: %s\n", message);
+
+    snprintf(opStr, sizeof(opStr), "%.*s", (int)op->v.len, message + op->v.pos);
   
     if (strcmp(opStr, "msg") == 0) {
       messageS = jsmnf_find(pairs, message, "msg", sizeof("msg") - 1);
 
-      clientIndex = get_client(socketDesc);
+      clientIndex = getClient(socketDesc);
 
-      printf("[chat]: %s: %.*s\n", client_sockets[clientIndex].name, (int)messageS->v.len, message + messageS->v.pos);
+      printf("[chat]: %s: %.*s\n", clientSockets[clientIndex].name, (int)messageS->v.len, message + messageS->v.pos);
 
-      payloadSize = sprintf(payload, "{\"op\":\"msg\",\"msg\":\"%.*s\",\"author\":\"%s\"}", (int)messageS->v.len, message + messageS->v.pos, client_sockets[clientIndex].name);
+      payloadSize = snprintf(payload, sizeof(payload), "{\"op\":\"msg\",\"msg\":\"%.*s\",\"author\":\"%s\"}", (int)messageS->v.len, message + messageS->v.pos, clientSockets[clientIndex].name);
 
       sendToAllExcept(payload, payloadSize, socketDesc);
 
@@ -158,13 +152,19 @@ void *listen_msgs(void *data) {
         continue;
       }
 
-      sprintf(usernameStr, "%.*s", (int)username->v.len, message + username->v.pos);
-      sprintf(passwordStr, "%.*s", (int)password->v.len, message + password->v.pos);
+      snprintf(usernameStr, sizeof(usernameStr), "%.*s", (int)username->v.len, message + username->v.pos);
+      snprintf(passwordStr, sizeof(passwordStr), "%.*s", (int)password->v.len, message + password->v.pos);
 
       if (strcmp(passwordStr, serverPassword) == 0) {
-        add_client(socketDesc, usernameStr);
+        addClient(socketDesc, usernameStr);
 
-        sendToAllExcept("{\"op\":\"userJoin\"}", 21, socketDesc);
+        payloadSize = snprintf(payload, sizeof(payload), "{\"op\":\"auth\",\"status\":\"ok\"}");
+
+        write(socketDesc, payload, payloadSize);
+
+        payloadSize = snprintf(payload, sizeof(payload), "{\"op\":\"userJoin\",\"username\":\"%s\"}", usernameStr);
+
+        sendToAllExcept(payload, payloadSize, socketDesc);
 
         printf("[auth]: \"%s\" is now authorized.\n", usernameStr);
 
@@ -172,7 +172,7 @@ void *listen_msgs(void *data) {
       } else {
         printf("[auth]: \"%s\" not authorized.\n", usernameStr);
 
-        payloadSize = sprintf(payload, "{\"op\":\"auth\",\"status\":\"fail\"}");
+        payloadSize = snprintf(payload, sizeof(payload), "{\"op\":\"auth\",\"status\":\"fail\"}");
 
         write(socketDesc, payload, payloadSize);
 
@@ -192,9 +192,11 @@ void *listen_msgs(void *data) {
     perror("[receiver]: recv failed");
   }
 
-  sendToAllExcept("{\"op\":\"userLeave\"}", 23, socketDesc);
+  payloadSize = snprintf(payload, sizeof(payload), "{\"op\":\"userLeave\",\"username\":\"%s\"}", clientSockets[getClient(socketDesc)].name);
 
-  remove_client(socketDesc);
+  sendToAllExcept(payload, payloadSize, socketDesc);
+
+  removeClient(socketDesc);
 
   return NULL;
 }
@@ -203,13 +205,13 @@ void intHandler(int signal) {
   int i = 0;
   (void) signal;
 
-  while (client_sockets[i].socket != 0) {
-    shutdown(client_sockets[i].socket, SHUT_RDWR);
-    close(client_sockets[i].socket);
+  while (clientSockets[i].socket != 0) {
+    shutdown(clientSockets[i].socket, SHUT_RDWR);
+    close(clientSockets[i].socket);
     i++;
   }
 
-  free(client_sockets);
+  free(clientSockets);
 
   puts("[socket]: Closing server since received signint...");
 
@@ -255,12 +257,12 @@ int main(void) {
     return 1;
   }
 
-  client_sockets = malloc(sizeof(struct client_info) * 5);
+  clientSockets = malloc(sizeof(struct clientInfo) * MAX_CLIENTS);
 
   while (i < MAX_CLIENTS) {
-    client_sockets[i].socket = 0;
-    client_sockets[i].name = NULL;
-    client_sockets[i].authorized = 0;
+    clientSockets[i].socket = 0;
+    clientSockets[i].name = NULL;
+    clientSockets[i].authorized = 0;
     i++;
   }
 
@@ -271,7 +273,7 @@ int main(void) {
   while ((socketDesc = accept(fd, (struct sockaddr *)&client, (socklen_t *)&address))) {
     puts("[socket]: Connection accepted");
 
-    cthreads_thread_create(&thread, NULL, listen_msgs, (void *)&socketDesc);
+    cthreads_thread_create(&thread, NULL, listenPayloads, (void *)&socketDesc);
 
     puts("[system]: Handler assigned to new user");
 
@@ -283,13 +285,13 @@ int main(void) {
 
   puts("[system]: Disconnecting server, see you later.");
 
-  while (client_sockets[i].socket != 0) {
-    shutdown(client_sockets[i].socket, SHUT_RDWR);
-    close(client_sockets[i].socket);
+  while (clientSockets[i].socket != 0) {
+    shutdown(clientSockets[i].socket, SHUT_RDWR);
+    close(clientSockets[i].socket);
     i++;
   }
 
-  free(client_sockets);
+  free(clientSockets);
 
   if (shutdown(fd, SHUT_RDWR) < 0) {
     perror("[socket]: shutdown failed.");
