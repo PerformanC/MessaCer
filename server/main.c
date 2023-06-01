@@ -23,7 +23,7 @@ struct clientInfo *clientSockets;
 
 void addClient(int clientSocket, char *name) {
   int i = 0;
-  while (i < MAX_CLIENTS) {
+  while (i < MAX_CLIENTS - 1) {
     if (clientSockets[i].socket == 0) {
       clientSockets[i].socket = clientSocket;
       clientSockets[i].name = name;
@@ -38,8 +38,9 @@ void addClient(int clientSocket, char *name) {
 
 int getClient(int clientSocket) {
   int i = 0;
-  while (i < MAX_CLIENTS) {
-    if (clientSockets[i].socket == clientSocket) return i;
+  while (i < MAX_CLIENTS - 1) {
+    if (clientSockets[i].socket == clientSocket)
+      return i;
 
     i++;
   }
@@ -49,7 +50,7 @@ int getClient(int clientSocket) {
 
 void removeClient(int clientSocket) {
   int i = 0;
-  while (i < MAX_CLIENTS) {
+  while (i < MAX_CLIENTS - 1) {
     if (clientSockets[i].socket == clientSocket) {
       clientSockets[i].socket = 0;
       clientSockets[i].name = NULL;
@@ -64,8 +65,8 @@ void removeClient(int clientSocket) {
 
 void sendToAllExcept(char *message, int len, int clientSocket) {
   int i = 0;
-  while (i < MAX_CLIENTS && clientSockets[i].socket != 0) {
-    if (clientSockets[i].socket != clientSocket) 
+  while (i < MAX_CLIENTS - 1 && clientSockets[i].socket != 0) {
+    if (clientSockets[i].socket != clientSocket)
       write(clientSockets[i].socket, message, len);
 
     i++;
@@ -78,7 +79,7 @@ void *listenPayloads(void *data) {
   int socketDesc = *(int *)data;
 
   char message[2000];
-  size_t msgSize;
+  ssize_t msgSize;
 
   int r, payloadSize, clientIndex;
   jsmn_parser parser;
@@ -88,7 +89,15 @@ void *listenPayloads(void *data) {
   jsmnf_pair *op, *username, *password, *messageS;
   char opStr[16], usernameStr[16], passwordStr[16], payload[4000];
 
-  while ((msgSize = recv(socketDesc, message, 4000, 0)) > 0) {
+  while ((msgSize = recv(socketDesc, message, 4000, 0))) {
+    if (msgSize < 0) {
+      perror("[receiver]: Failed to receive message, reason");
+
+      removeClient(socketDesc);
+
+      break;
+    }
+
     jsmn_init(&parser);
     r = jsmn_parse(&parser, message, msgSize, tokens, 256);
     if (r < 0) {
@@ -122,7 +131,7 @@ void *listenPayloads(void *data) {
     printf("[receiver]: Received message: %s\n", message);
 
     snprintf(opStr, sizeof(opStr), "%.*s", (int)op->v.len, message + op->v.pos);
-  
+
     if (strcmp(opStr, "msg") == 0) {
       messageS = jsmnf_find(pairs, message, "msg", sizeof("msg") - 1);
 
@@ -139,8 +148,9 @@ void *listenPayloads(void *data) {
       printf("[chat]: %s: %.*s\n", clientSockets[clientIndex].name, (int)messageS->v.len, message + messageS->v.pos);
 
       payloadSize = snprintf(payload, sizeof(payload), "{\"op\":\"msg\",\"msg\":\"%.*s\",\"author\":\"%s\"}", (int)messageS->v.len, message + messageS->v.pos, clientSockets[clientIndex].name);
-
       sendToAllExcept(payload, payloadSize, socketDesc);
+
+      memset(message, 0, msgSize);
     }
     if (strcmp(opStr, "auth") == 0) {
       username = jsmnf_find(pairs, message, "username", sizeof("username") - 1);
@@ -161,40 +171,39 @@ void *listenPayloads(void *data) {
         addClient(socketDesc, usernameStr);
 
         payloadSize = snprintf(payload, sizeof(payload), "{\"op\":\"auth\",\"status\":\"ok\"}");
-
         write(socketDesc, payload, payloadSize);
 
         payloadSize = snprintf(payload, sizeof(payload), "{\"op\":\"userJoin\",\"username\":\"%s\"}", usernameStr);
-
         sendToAllExcept(payload, payloadSize, socketDesc);
 
         printf("[auth]: \"%s\" is now authorized.\n", usernameStr);
+
+        memset(message, 0, msgSize);
       } else {
         printf("[auth]: \"%s\" not authorized.\n", usernameStr);
 
         payloadSize = snprintf(payload, sizeof(payload), "{\"op\":\"auth\",\"status\":\"fail\"}");
-
         write(socketDesc, payload, payloadSize);
 
-        close(socketDesc);
-      }
+        memset(message, 0, msgSize);
 
-      memset(message, 0, msgSize);
+        break;
+      }
     }
   }
 
-  if (msgSize == 0) {
-    puts("[receiver]: Client disconnected");
-    fflush(stdout);
-  } else {
-    perror("[receiver]: recv failed");
+  puts("[receiver]: A client disconnected.");
+
+  shutdown(socketDesc, SHUT_RDWR);
+  close(socketDesc);
+
+  clientIndex = getClient(socketDesc);
+  if (clientIndex != -1) {
+    payloadSize = snprintf(payload, sizeof(payload), "{\"op\":\"userLeave\",\"username\":\"%s\"}", clientSockets[getClient(socketDesc)].name);
+    sendToAllExcept(payload, payloadSize, socketDesc);
   }
 
-  payloadSize = snprintf(payload, sizeof(payload), "{\"op\":\"userLeave\",\"username\":\"%s\"}", clientSockets[getClient(socketDesc)].name);
-
-  sendToAllExcept(payload, payloadSize, socketDesc);
-
-  removeClient(socketDesc);
+  pthread_exit(0);
 
   return NULL;
 }
@@ -203,7 +212,7 @@ void endProcess(int signal) {
   int i = 0;
   (void) signal;
 
-  while (i < MAX_CLIENTS) {
+  while (i < MAX_CLIENTS - 1) {
     if (clientSockets[i].socket != 0) {
       shutdown(clientSockets[i].socket, SHUT_RDWR);
       close(clientSockets[i].socket);
@@ -216,13 +225,11 @@ void endProcess(int signal) {
 
   puts("[socket]: Closing server..");
 
-  if (shutdown(fd, SHUT_RDWR) < 0) {
+  if (shutdown(fd, SHUT_RDWR) < 0)
     perror("[socket]: shutdown failed.");
-  }
 
-  if (close(fd) < 0) {
+  if (close(fd) < 0)
     perror("[socket]: close failed.");
-  }
 
   exit(0);
 }
@@ -236,10 +243,11 @@ int main(void) {
   signal(SIGINT, endProcess);
 
   fd = socket(AF_INET, SOCK_STREAM, 0);
-	if (fd == -1) {
+  if (fd == -1) {
     perror("[system]: create socket failed");
+
     return 1;
-	}
+  }
 
   puts("[socket]: socket created");
 
@@ -281,6 +289,7 @@ int main(void) {
     puts("[socket]: A connection was accepted.");
 
     cthreads_thread_create(&thread, NULL, listenPayloads, (void *)&socketDesc, &args);
+    cthreads_thread_detach(&thread);
 
     puts("[system]: Thread created for new connection.");
   }
