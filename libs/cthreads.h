@@ -17,6 +17,11 @@ extern "C" {
 #include <pthread.h>
 #endif
 
+struct cthreads_args {
+  void *(*func)(void *data);
+  void *data;
+};
+
 struct cthreads_thread {
     #ifdef _WIN32
         HANDLE wThread;
@@ -26,15 +31,18 @@ struct cthreads_thread {
 };
 
 struct cthreads_thread_attr {
-    int detachstate;
-    size_t guardsize;
-    int inheritsched;
-    int schedpolicy;
-    int scope;
-    size_t stack;
-    void *stackaddr;
     size_t stacksize;
-    int dwCreationFlags;
+    #ifdef _WIN32
+        int dwCreationFlags;
+    #else
+        void *stackaddr;
+        int detachstate;
+        size_t guardsize;
+        int inheritsched;
+        int schedpolicy;
+        int scope;
+        size_t stack;
+    #endif
 };
 
 struct cthreads_mutex {
@@ -46,13 +54,20 @@ struct cthreads_mutex {
 };
 
 struct cthreads_mutex_attr {
-    int pshared;
-    int type;
-    int protocol;
-    int robust;
-    int prioceiling;
-    int bInitialOwner;
-    char *lpName;
+    #ifdef _WIN32
+        int bInitialOwner;
+        char *lpName;
+    #else
+        int pshared;
+        int type;
+        int protocol;
+        #ifdef __linux__
+            int robust;
+        #elif __FreeBSD__
+            int robust;
+        #endif
+        int prioceiling;
+    #endif
 };
 
 struct cthreads_cond {
@@ -64,16 +79,14 @@ struct cthreads_cond {
 };
 
 struct cthreads_cond_attr {
-    int pshared;
-    int clock;
-    int bManualReset;
-    int bInitialState;
-    char *lpName;
-};
-
-struct cthreads_args {
-  void *(*func)(void *data);
-  void *data;
+    #ifdef _WIN32
+        int bManualReset;
+        int bInitialState;
+        char *lpName;
+    #else
+        int pshared;
+        int clock;
+    #endif
 };
 
 #if _WIN32
@@ -90,13 +103,11 @@ void *__cthreads_pthread_function_wrapper(void *data) {
     struct cthreads_args *args = data;
     args->func(args->data);
 
-    free(data);
-
     return NULL;
 }
 #endif
 
-int cthreads_thread_create(struct cthreads_thread *thread, struct cthreads_thread_attr *attr, void *(*func)(void *data), void *data) {
+int cthreads_thread_create(struct cthreads_thread *thread, struct cthreads_thread_attr *attr, void *(*func)(void *data), void *data, struct cthreads_args *args) {
     #ifdef _WIN32
         struct cthreads_args *args = malloc(sizeof(struct cthreads_args));
         args->func = func;
@@ -113,10 +124,8 @@ int cthreads_thread_create(struct cthreads_thread *thread, struct cthreads_threa
         pthread_attr_t pAttr;
         int res;
 
-        struct cthreads_args *args = malloc(sizeof(struct cthreads_args));
         args->func = func;
         args->data = data;
-
 
         if (attr) {
             if (attr->detachstate) pthread_attr_setdetachstate(&pAttr, attr->detachstate);
@@ -155,9 +164,9 @@ void cthreads_thread_close(void *code) {
 int cthreads_mutex_init(struct cthreads_mutex *mutex, struct cthreads_mutex_attr *attr) {
     #ifdef _WIN32
         HANDLE wMutex;
-        if (attr) wMutex= CreateMutex(NULL, attr->bInitialOwner ? TRUE : FALSE, 
+        if (attr) wMutex = CreateMutex(NULL, attr->bInitialOwner ? TRUE : FALSE, 
                                       attr->lpName ? (LPCSTR)attr->lpName : NULL);
-        else wMutex= CreateMutex(NULL, FALSE, NULL);
+        else wMutex = CreateMutex(NULL, FALSE, NULL);
 
         if (wMutex == NULL) return 1;
         else {

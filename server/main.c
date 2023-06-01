@@ -231,6 +231,7 @@ int main(void) {
   int address = sizeof(struct sockaddr_in), socketDesc, i = 0;
   struct sockaddr_in server, client;
   struct cthreads_thread thread;
+  struct cthreads_args args;
 
   signal(SIGINT, endProcess);
 
@@ -262,7 +263,7 @@ int main(void) {
 
   clientSockets = malloc(sizeof(struct clientInfo) * MAX_CLIENTS);
 
-  while (i < MAX_CLIENTS) {
+  while (i < MAX_CLIENTS - 1) {
     clientSockets[i].socket = 0;
     clientSockets[i].name = NULL;
     clientSockets[i++].authorized = 0;
@@ -279,7 +280,7 @@ int main(void) {
 
     puts("[socket]: A connection was accepted.");
 
-    cthreads_thread_create(&thread, NULL, listenPayloads, (void *)&socketDesc);
+    cthreads_thread_create(&thread, NULL, listenPayloads, (void *)&socketDesc, &args);
 
     puts("[system]: Thread created for new connection.");
   }
