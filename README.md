@@ -1,8 +1,16 @@
 # MessaCer
 
-MessaCer is a decentralized messaging system that uses sockets to communicate between clients and servers. [ALPHA]
+A decentralized messaging system
 
 ## Installation
+
+The installation of MessaCer will require you to have the following dependencies installed on your system:
+
+- make
+- any compiler that supports C89
+- git
+
+After you have installed the dependencies, you can install MessaCer by following the instructions below.
 
 ### Server
 
@@ -12,7 +20,7 @@ $ cd MessaCer/server
 $ make
 ```
 
-### Client
+### Terminal based client
 
 ```command
 $ git clone https://github.com/PerformanC/MessaCer.git
@@ -20,25 +28,37 @@ $ cd MessaCer/client
 $ make
 ```
 
+### Web-client
+
+Coming soon...
+
 ## Usage
 
 ### Server
 
-The server will be listening on the 8888 port by default, and you can change that by editing the main.c file.
+The server listens for connections from clients, and it will broadcast the messages sent by the clients to all the other clients connected to the server, guaranteeing the integrity of the information about the clients.
+
+By default, the password to access the server is 1234, but that can be easily modified in the main.c editing the `serverPassword` variable.
+
+After that, you can start the server by executing the following command:
 
 ```command
 $ ./server
 ```
 
+All done, your server should be running, if not, pay attention to the logging.
+
 ### Client
 
-The client will connect to the server on the 8888 port by default, and you can change that by editing the main.c file.
+The client connects to the server, and it will send the messages to the server, which will be broadcasted to all the other clients connected to the server.
+
+To start the client, you can execute the following command:
 
 ```command
 $ ./client
 ```
 
-It will ask you for the address of the server, and then your username, after that you'll be able to send messages to the server.
+It will ask you a few questions, make sure to answer them correctly, and you should be able to connect to the server. (The default password is 1234, and the username can be any string with the limitation of 16 letters maximum)
 
 ## License
 
@@ -48,8 +68,9 @@ If you wish to use some part of the source code, you must contact us first, and 
 
 ## Credits
 
-* [ThePedroo](https://github.com/ThePedroo) - PerformanC lead developer
-- [HackerSmacker](https://github.com/HackerSmacker) - Gave us the idea for using sockets to communicate between clients and servers.
+- [ThePedroo](https://github.com/ThePedroo) - PerformanC developer, server developer
+- [AverageFemale](https://github.com/AverageFemale) - PerformanC developer, web-client developer
+- [HackerSmacker](https://github.com/HackerSmacker) - Cogmasters organization member (gave the idea of sockets)
 
 ## Warning
 

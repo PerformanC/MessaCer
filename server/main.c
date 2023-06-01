@@ -1,14 +1,11 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <stdarg.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <signal.h>
 #include "../libs/jsmn.h"
 #include "../libs/jsmn-find.h"
-#include "../libs/json-build.h"
 #include "../libs/cthreads.h"
 
 int fd;
@@ -24,8 +21,6 @@ struct clientInfo {
 
 struct clientInfo *clientSockets;
 
-/* UTILS - START */
-
 void addClient(int clientSocket, char *name) {
   int i = 0;
   while (i < MAX_CLIENTS) {
@@ -33,8 +28,10 @@ void addClient(int clientSocket, char *name) {
       clientSockets[i].socket = clientSocket;
       clientSockets[i].name = name;
       clientSockets[i].authorized = 1;
+
       break;
     }
+
     i++;
   }
 }
@@ -42,9 +39,8 @@ void addClient(int clientSocket, char *name) {
 int getClient(int clientSocket) {
   int i = 0;
   while (i < MAX_CLIENTS) {
-    if (clientSockets[i].socket == clientSocket) {
-      return i;
-    }
+    if (clientSockets[i].socket == clientSocket) return i;
+
     i++;
   }
 
@@ -58,8 +54,10 @@ void removeClient(int clientSocket) {
       clientSockets[i].socket = 0;
       clientSockets[i].name = NULL;
       clientSockets[i].authorized = 0;
+
       break;
     }
+
     i++;
   }
 }
@@ -67,17 +65,14 @@ void removeClient(int clientSocket) {
 void sendToAllExcept(char *message, int len, int clientSocket) {
   int i = 0;
   while (i < MAX_CLIENTS && clientSockets[i].socket != 0) {
-    if (clientSockets[i].socket == clientSocket) {
-      i++;
-      continue;
-    }
+    if (clientSockets[i].socket != clientSocket) 
+      write(clientSockets[i].socket, message, len);
 
-    write(clientSockets[i].socket, message, len);
     i++;
   }
 }
 
-/* UTILS - END */
+int snprintf(char *str, size_t size, const char *format, ...);
 
 void *listenPayloads(void *data) {
   int socketDesc = *(int *)data;
@@ -118,6 +113,7 @@ void *listenPayloads(void *data) {
 
     if (op == NULL) {
       puts("[parser]: No operation specified, ignoring.");
+
       memset(message, 0, msgSize);
 
       continue;
@@ -130,6 +126,14 @@ void *listenPayloads(void *data) {
     if (strcmp(opStr, "msg") == 0) {
       messageS = jsmnf_find(pairs, message, "msg", sizeof("msg") - 1);
 
+      if (messageS->v.len == 0) {
+        puts("[chat]: No message specified, ignoring.");
+
+        memset(message, 0, msgSize);
+
+        continue;
+      }
+
       clientIndex = getClient(socketDesc);
 
       printf("[chat]: %s: %.*s\n", clientSockets[clientIndex].name, (int)messageS->v.len, message + messageS->v.pos);
@@ -137,8 +141,6 @@ void *listenPayloads(void *data) {
       payloadSize = snprintf(payload, sizeof(payload), "{\"op\":\"msg\",\"msg\":\"%.*s\",\"author\":\"%s\"}", (int)messageS->v.len, message + messageS->v.pos, clientSockets[clientIndex].name);
 
       sendToAllExcept(payload, payloadSize, socketDesc);
-
-      memset(message, 0, msgSize);
     }
     if (strcmp(opStr, "auth") == 0) {
       username = jsmnf_find(pairs, message, "username", sizeof("username") - 1);
@@ -167,8 +169,6 @@ void *listenPayloads(void *data) {
         sendToAllExcept(payload, payloadSize, socketDesc);
 
         printf("[auth]: \"%s\" is now authorized.\n", usernameStr);
-
-        memset(message, 0, msgSize);
       } else {
         printf("[auth]: \"%s\" not authorized.\n", usernameStr);
 
@@ -176,12 +176,10 @@ void *listenPayloads(void *data) {
 
         write(socketDesc, payload, payloadSize);
 
-        memset(message, 0, msgSize);
-
         close(socketDesc);
-        
-        continue;
       }
+
+      memset(message, 0, msgSize);
     }
   }
 
@@ -201,19 +199,22 @@ void *listenPayloads(void *data) {
   return NULL;
 }
 
-void intHandler(int signal) {
+void endProcess(int signal) {
   int i = 0;
   (void) signal;
 
-  while (clientSockets[i].socket != 0) {
-    shutdown(clientSockets[i].socket, SHUT_RDWR);
-    close(clientSockets[i].socket);
+  while (i < MAX_CLIENTS) {
+    if (clientSockets[i].socket != 0) {
+      shutdown(clientSockets[i].socket, SHUT_RDWR);
+      close(clientSockets[i].socket);
+    }
+
     i++;
   }
 
   free(clientSockets);
 
-  puts("[socket]: Closing server since received signint...");
+  puts("[socket]: Closing server..");
 
   if (shutdown(fd, SHUT_RDWR) < 0) {
     perror("[socket]: shutdown failed.");
@@ -227,11 +228,11 @@ void intHandler(int signal) {
 }
 
 int main(void) {
-  int address, socketDesc, i = 0;
+  int address = sizeof(struct sockaddr_in), socketDesc, i = 0;
   struct sockaddr_in server, client;
   struct cthreads_thread thread;
 
-  signal(SIGINT, intHandler);
+  signal(SIGINT, endProcess);
 
   fd = socket(AF_INET, SOCK_STREAM, 0);
 	if (fd == -1) {
@@ -247,6 +248,7 @@ int main(void) {
 
   if (bind(fd, (struct sockaddr *)&server, sizeof(server)) < 0) {
     perror("[socket]: bind failed");
+
     return 1;
   }
 
@@ -254,6 +256,7 @@ int main(void) {
 
   if (listen(fd, 3) == -1) {
     perror("[socket]: listen failed");
+
     return 1;
   }
 
@@ -262,50 +265,26 @@ int main(void) {
   while (i < MAX_CLIENTS) {
     clientSockets[i].socket = 0;
     clientSockets[i].name = NULL;
-    clientSockets[i].authorized = 0;
-    i++;
+    clientSockets[i++].authorized = 0;
   }
 
-  puts("[socket]: Waiting for incoming connections...");
-
-  address = sizeof(struct sockaddr_in);
+  puts("[socket]: Ready to accept connections.");
 
   while ((socketDesc = accept(fd, (struct sockaddr *)&client, (socklen_t *)&address))) {
-    puts("[socket]: Connection accepted");
+    if (socketDesc == -1) {
+      perror("[socket]: accept failed");
+
+      return 1;
+    }
+
+    puts("[socket]: A connection was accepted.");
 
     cthreads_thread_create(&thread, NULL, listenPayloads, (void *)&socketDesc);
 
-    puts("[system]: Handler assigned to new user");
-
-    if (socketDesc == -1) {
-      perror("[socket]: accept failed");
-      return 1;
-    }
+    puts("[system]: Thread created for new connection.");
   }
 
-  puts("[system]: Disconnecting server, see you later.");
-
-  while (clientSockets[i].socket != 0) {
-    shutdown(clientSockets[i].socket, SHUT_RDWR);
-    close(clientSockets[i].socket);
-    i++;
-  }
-
-  free(clientSockets);
-
-  if (shutdown(fd, SHUT_RDWR) < 0) {
-    perror("[socket]: shutdown failed.");
-
-    return 1;
-  }
-
-  if (close(fd) < 0) {
-    perror("[socket]: close failed.");
-
-    return 1;
-  }
-
-  puts("[system]: Server disconnected.");
+  endProcess(0);
 
   return 0;
 }
