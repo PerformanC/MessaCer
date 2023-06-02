@@ -30,7 +30,11 @@ $ make
 
 ### Web-client
 
-Coming soon...
+```command
+$ git clone https://github.com/PerformanC/MessaCer.git
+$ cd MessaCer/webclient
+$ npm install
+```
 
 ## Usage
 
@@ -59,6 +63,18 @@ $ ./client
 ```
 
 It will ask you a few questions, make sure to answer them correctly, and you should be able to connect to the server. (The default password is 1234, and the username can be any string with the limitation of 16 letters maximum)
+
+### Web-client
+
+The web-client does everything the client does but in a browser with an interface.
+
+To start the server, you can execute the following command:
+
+```command
+$ node .
+```
+
+Once the webclient prints out `[http]: Running on port 8080.` you can go to https://localhost:8080 to access the interface.
 
 ## License
 
