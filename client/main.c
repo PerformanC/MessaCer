@@ -11,12 +11,37 @@
 #include "../libs/json-build.h"
 #include "../libs/cthreads.h"
 
+char password[16];
+
 struct informations {
   int socket;
   char *username;
   int exitval;
   int running;
 };
+
+void unscrambleString(char *str, size_t strLength, char *password) {
+  size_t i = 0;
+  size_t passwordLength = strlen(password);
+
+  while (i < strLength) {
+    str[i] ^= password[i % passwordLength];
+
+    i++;
+  }
+}
+
+void *messString(char *str, char *password) {
+  size_t i = 0;
+  size_t strLength = strlen(str);
+  size_t passwordLength = strlen(password);
+
+  while (i < strLength) {
+    str[i] ^= password[i % passwordLength];
+
+    i++;
+  }
+}
 
 static void *on_text(void *data) {
   int sock = *(int *)data, r;
@@ -32,6 +57,9 @@ static void *on_text(void *data) {
   size_t payloadSize;
 
   while ((payloadSize = recv(sock, payload, 4000, 0)) != 0) {
+    unscrambleString(payload, payloadSize, password);
+
+    printf("[MessaCer]: Received message: %s\n", payload);
     jsmn_init(&parser);
     r = jsmn_parse(&parser, payload, payloadSize, tokens, 256);
     if (r < 0) {
@@ -96,7 +124,8 @@ int main(void) {
   int fd;
   jsonb b;
 	struct sockaddr_in server; struct cthreads_thread thread;
-  char url[512], password[16], username[32], message[3900], payload[4000];
+  size_t payloadSize;
+  char url[512], username[32], message[3900], payload[4000];
 
   printf("URL of host server: ");
   fgets(url, sizeof(url), stdin);
@@ -127,16 +156,18 @@ int main(void) {
 
   puts("[MessaCer]: Successfully connected to host, caution, it has access to everything you send and may be stored.\n");
 
-  sprintf(payload, "{\"op\":\"auth\",\"password\":\"%s\",\"username\":\"%s\"}", password, username);
+  payloadSize = sprintf(payload, "{\"op\":\"auth\",\"password\":\"%s\",\"username\":\"%s\"}", password, username);
+  messString(payload, password);
 
-  if (send(fd, payload, strlen(payload), 0) < 0) {
+  if (send(fd, payload, payloadSize, 0) < 0) {
     perror("[MessaCer]: Failed to send auth to server.");
     return 1;
   }
 
   memset(payload, 0, sizeof(payload));
 
-  cthreads_thread_create(&thread, NULL, on_text, (void *)&fd);
+  struct cthreads_args args;
+  cthreads_thread_create(&thread, NULL, on_text, (void *)&fd, &args);
 
   while (1) {
     fgets(message, sizeof(message), stdin);
@@ -153,6 +184,8 @@ int main(void) {
       jsonb_string(&b, payload, sizeof(payload), message, strlen(message));
       jsonb_object_pop(&b, payload, sizeof(payload));
     }
+
+    messString(payload, password);
 
     if (send(fd, payload, strlen(payload), 0) < 0) {
       perror("[MessaCer]: Failed to send data to server.");

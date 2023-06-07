@@ -1,5 +1,5 @@
 CC ?= gcc
-CFLAGS := -Wall -Wextra -Wpedantic -std=c89 -pthread -lpthread
+CFLAGS := -Wall -Wextra -Wpedantic -std=c89 -pthread -lpthread -lssl -lcrypto
 FILES := main.c
 
 all:

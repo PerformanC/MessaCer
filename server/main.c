@@ -4,12 +4,13 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <signal.h>
+#include <string.h>
 #include "../libs/jsmn.h"
 #include "../libs/jsmn-find.h"
 #include "../libs/cthreads.h"
 
 int fd;
-char *serverPassword = "1234";
+const char *serverPassword = "1234";
 
 struct clientInfo {
   int socket;
@@ -63,8 +64,29 @@ void removeClient(int clientSocket) {
   }
 }
 
+void unscrambleString(char *str, size_t strLength) {
+  size_t i = 0;
+  while (i < strLength) {
+    str[i] ^= serverPassword[i % strlen(serverPassword)];
+
+    i++;
+  }
+}
+
+void messString(char *str, size_t strLength) {
+  size_t i = 0;
+  while (i < strLength) {
+    str[i] ^= serverPassword[i % strlen(serverPassword)];
+
+    i++;
+  }
+}
+
 void sendToAllExcept(char *message, int len, int clientSocket) {
   int i = 0;
+
+  messString(message, len);
+
   while (i < MAX_CLIENTS - 1 && clientSockets[i].socket != 0) {
     if (clientSockets[i].socket != clientSocket)
       write(clientSockets[i].socket, message, len);
@@ -97,6 +119,8 @@ void *listenPayloads(void *data) {
 
       break;
     }
+
+    unscrambleString(message, msgSize);
 
     jsmn_init(&parser);
     r = jsmn_parse(&parser, message, msgSize, tokens, 256);
@@ -171,6 +195,7 @@ void *listenPayloads(void *data) {
         addClient(socketDesc, usernameStr);
 
         payloadSize = snprintf(payload, sizeof(payload), "{\"op\":\"auth\",\"status\":\"ok\"}");
+        messString(payload, payloadSize);
         write(socketDesc, payload, payloadSize);
 
         payloadSize = snprintf(payload, sizeof(payload), "{\"op\":\"userJoin\",\"username\":\"%s\"}", usernameStr);
