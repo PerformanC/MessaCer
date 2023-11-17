@@ -1,0 +1,63 @@
+name: Issue report
+description: Report an issue
+title: "[BUG]: "
+labels: ["bug", "not confirmed"]
+
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Messaging Sys. commit
+      description: The commit of messaging sys. you're using.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: system
+    attributes:
+      label: System
+      description: Which system is the affected one?
+      options:
+        - label: Client (deprecated)
+          value: client
+        - label: Server
+          value: server
+        - label: Main server
+          value: main
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear and concise description of what the bug is.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Steps to reproduce the behavior.
+    validations:
+      required: true
+
+  - type: textarea
+    id: example
+    attributes:
+      label: Example code
+      description: If you have an example of how to reproduce the bug, please share it here.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Confirmations
+      description: The following confirmations are required to open a bug report.
+      options:
+        - label: My environment meets the minimum requirements.
+          required: true
+        - label: I have verified that this is not a duplicate issue.
+          required: true

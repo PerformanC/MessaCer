@@ -1,16 +1,16 @@
 ## Changes
 
-Write here what you changed (REQUIRED)
+Write here about the changes you've made
 
-## Why
+## Why 
 
-Write here why you changed it (REQUIRED)
+Write here why you think this should be merged
 
 ## Checkmarks
-- [ ] Used same indentation as the rest of the project.
-- [ ] Tested and passed flawlessly
-- [ ] No memory leaks found
+
+- [ ] The modified functions have been tested.
+- [ ] Used the same indentation as the rest of the project.
 
 ## Additional information
 
-Write here any additional information you may want to add (OPTIONAL)
+If you have any additional information, write it here
