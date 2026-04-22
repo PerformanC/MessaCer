@@ -78,7 +78,7 @@ Once the webclient prints out `[http]: Running on port 8080.` you can go to http
 
 ## License
 
-MessaCer is licensed under [BSD 2-Clause License](LICENSE). You can read more about it on [Open Source Initiative](https://opensource.org/licenses/BSD-2-Clause).
+MessaCer is licensed under [BSD 3-Clause License](LICENSE). You can read more about it on [Open Source Initiative](https://opensource.org/licenses/BSD-3-Clause).
 
 ## Credits
 
