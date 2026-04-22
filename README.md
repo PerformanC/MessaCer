@@ -62,7 +62,7 @@ To start the client, you can execute the following command:
 $ ./client
 ```
 
-It will ask you a few questions, make sure to answer them correctly, and you should be able to connect to the server. (The default password is 1234, and the username can be any string with the limitation of 16 letters maximum)
+It will ask you a few questions, make sure to answer them correctly, and you should be able to connect to the server. (The default password is 1234, and the username can be any string with the limitation of 16 letters maximum).
 
 ### Web-client
 
